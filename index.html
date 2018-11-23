@@ -1,680 +1,859 @@
-<!DOCTYPE html> 
+<!DOCTYPE HTML>
+<html lang="en">
 
-<html>
 <head>
-  <title>Hieu Trinh</title>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <link href="common.css" rel="stylesheet" type="text/css" />
-</head> 
+    <meta charset="UTF-8">
+	<meta content="Flappy Bird,game,Crappy Bird,clone,javascript,html5 game,mobile,canvas,flappy bird source" name="keywords"/>
+	<meta name="description" content="Clone of Flappy bird game in javascript using canvas 2d">
+    <meta name="viewport" content="width=device-width, 
+    user-scalable=no, initial-scale=1, maximum-scale=1, user-scalable=0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-<body> 
-
-  <table id="controls">
-    <tr><td id="fps" colspan="2" align="right"></td></tr>
-    <tr>
-      <th><label for="resolution">Resolution :</label></th>
-      <td>
-        <select id="resolution" style="width:100%">
-          <option selected value='fine'>Fine (1280x960)</option>
-          <option value='high'>High (1024x768)</option>
-          <option value='medium'>Medium (640x480)</option>
-          <option value='low'>Low (480x360)</option>
-        </select>
-      </td>
-    </tr>
-    <tr>
-      <th><label for="lanes">Lanes :</label></th>
-      <td>
-        <select id="lanes">
-          <option>1</option>
-          <option>2</option>
-          <option selected>3</option>
-          <option>4</option>
-        </select>
-      </td>
-    </tr>
-    <tr>
-      <th><label for="roadWidth">Road Width (<span id="currentRoadWidth"></span>) :</label></th>
-      <td><input id="roadWidth" type='range' min='500' max='3000' title="integer (500-3000)"></td>
-    </tr>
-    <tr>
-      <th><label for="cameraHeight">CameraHeight (<span id="currentCameraHeight"></span>) :</label></th>
-      <td><input id="cameraHeight" type='range' min='500' max='5000' title="integer (500-5000)"></td>
-    </tr>
-    <tr>
-      <th><label for="drawDistance">Draw Distance (<span id="currentDrawDistance"></span>) :</label></th>
-      <td><input id="drawDistance" type='range' min='100' max='500' title="integer (100-500)"></td>
-    </tr>
-    <tr>
-      <th><label for="fieldOfView">Field of View (<span id="currentFieldOfView"></span>) :</label></th>
-      <td><input id="fieldOfView" type='range' min='80' max='140' title="integer (80-140)"></td>
-    </tr>
-    <tr>
-      <th><label for="fogDensity">Fog Density (<span id="currentFogDensity"></span>) :</label></th>
-      <td><input id="fogDensity" type='range' min='0' max='50' title="integer (0-50)"></td>
-    </tr>
-  </table>
-
-  <div id='instructions'>
-    <p>Use the <b>arrow keys</b> to drive the car.</p>
-  </div>
-
-  <div id="racer">
-    <div id="hud">
-      <span id="speed"            class="hud"><span id="speed_value" class="value">0</span> mph</span>
-      <span id="current_lap_time" class="hud">Time: <span id="current_lap_time_value" class="value">0.0</span></span> 
-      <span id="last_lap_time"    class="hud">Last Lap: <span id="last_lap_time_value" class="value">0.0</span></span>
-      <span id="fast_lap_time"    class="hud">Fastest Lap: <span id="fast_lap_time_value" class="value">0.0</span></span>
-    </div>
-    <canvas id="canvas">
-      Sorry, this example cannot be run because your browser does not support the &lt;canvas&gt; element
-    </canvas>
-    Loading...
-  </div>
-
-  <audio id='music'>
-    <source src="music/racer.ogg">
-    <source src="music/racer.mp3">
-  </audio>
-  <span id="mute"></span>
-
-  <script src="stats.js"></script>
-  <script src="common.js"></script>
-  <script>
-
-    var fps            = 60;                      // how many 'update' frames per second
-    var step           = 1/fps;                   // how long is each frame (in seconds)
-    var width          = 1024;                    // logical canvas width
-    var height         = 768;                     // logical canvas height
-    var centrifugal    = 0.3;                     // centrifugal force multiplier when going around curves
-    var offRoadDecel   = 0.99;                    // speed multiplier when off road (e.g. you lose 2% speed each update frame)
-    var skySpeed       = 0.001;                   // background sky layer scroll speed when going around curve (or up hill)
-    var hillSpeed      = 0.002;                   // background hill layer scroll speed when going around curve (or up hill)
-    var treeSpeed      = 0.003;                   // background tree layer scroll speed when going around curve (or up hill)
-    var skyOffset      = 0;                       // current sky scroll offset
-    var hillOffset     = 0;                       // current hill scroll offset
-    var treeOffset     = 0;                       // current tree scroll offset
-    var segments       = [];                      // array of road segments
-    var cars           = [];                      // array of cars on the road
-    var stats          = Game.stats('fps');       // mr.doobs FPS counter
-    var canvas         = Dom.get('canvas');       // our canvas...
-    var ctx            = canvas.getContext('2d'); // ...and its drawing context
-    var background     = null;                    // our background image (loaded below)
-    var sprites        = null;                    // our spritesheet (loaded below)
-    var resolution     = null;                    // scaling factor to provide resolution independence (computed)
-    var roadWidth      = 2000;                    // actually half the roads width, easier math if the road spans from -roadWidth to +roadWidth
-    var segmentLength  = 200;                     // length of a single segment
-    var rumbleLength   = 3;                       // number of segments per red/white rumble strip
-    var trackLength    = null;                    // z length of entire track (computed)
-    var lanes          = 3;                       // number of lanes
-    var fieldOfView    = 100;                     // angle (degrees) for field of view
-    var cameraHeight   = 1000;                    // z height of camera
-    var cameraDepth    = null;                    // z distance camera is from screen (computed)
-    var drawDistance   = 300;                     // number of segments to draw
-    var playerX        = 0;                       // player x offset from center of road (-1 to 1 to stay independent of roadWidth)
-    var playerZ        = null;                    // player relative z distance from camera (computed)
-    var fogDensity     = 5;                       // exponential fog density
-    var position       = 0;                       // current camera Z position (add playerZ to get player's absolute Z position)
-    var speed          = 0;                       // current speed
-    var maxSpeed       = segmentLength/step;      // top speed (ensure we can't move more than 1 segment in a single frame to make collision detection easier)
-    var accel          =  maxSpeed/5;             // acceleration rate - tuned until it 'felt' right
-    var breaking       = -maxSpeed;               // deceleration rate when braking
-    var decel          = -maxSpeed/5;             // 'natural' deceleration rate when neither accelerating, nor braking
-    var offRoadDecel   = -maxSpeed/2;             // off road deceleration is somewhere in between
-    var offRoadLimit   =  maxSpeed/4;             // limit when off road deceleration no longer applies (e.g. you can always go at least this speed even when off road)
-    var totalCars      = 200;                     // total number of cars on the road
-    var currentLapTime = 0;                       // current lap time
-    var lastLapTime    = null;                    // last lap time
-
-    var keyLeft        = false;
-    var keyRight       = false;
-    var keyFaster      = false;
-    var keySlower      = false;
-
-    var hud = {
-      speed:            { value: null, dom: Dom.get('speed_value')            },
-      current_lap_time: { value: null, dom: Dom.get('current_lap_time_value') },
-      last_lap_time:    { value: null, dom: Dom.get('last_lap_time_value')    },
-      fast_lap_time:    { value: null, dom: Dom.get('fast_lap_time_value')    }
-    }
-
-    //=========================================================================
-    // UPDATE THE GAME WORLD
-    //=========================================================================
-
-    function update(dt) {
-
-      var n, car, carW, sprite, spriteW;
-      var playerSegment = findSegment(position+playerZ);
-      var playerW       = SPRITES.PLAYER_STRAIGHT.w * SPRITES.SCALE;
-      var speedPercent  = speed/maxSpeed;
-      var dx            = dt * 2 * speedPercent; // at top speed, should be able to cross from left to right (-1 to 1) in 1 second
-      var startPosition = position;
-
-      updateCars(dt, playerSegment, playerW);
-
-      position = Util.increase(position, dt * speed, trackLength);
-
-      if (keyLeft)
-        playerX = playerX - dx;
-      else if (keyRight)
-        playerX = playerX + dx;
-
-      playerX = playerX - (dx * speedPercent * playerSegment.curve * centrifugal);
-
-      if (keyFaster)
-        speed = Util.accelerate(speed, accel, dt);
-      else if (keySlower)
-        speed = Util.accelerate(speed, breaking, dt);
-      else
-        speed = Util.accelerate(speed, decel, dt);
-
-
-      if ((playerX < -1) || (playerX > 1)) {
-
-        if (speed > offRoadLimit)
-          speed = Util.accelerate(speed, offRoadDecel, dt);
-
-        for(n = 0 ; n < playerSegment.sprites.length ; n++) {
-          sprite  = playerSegment.sprites[n];
-          spriteW = sprite.source.w * SPRITES.SCALE;
-          if (Util.overlap(playerX, playerW, sprite.offset + spriteW/2 * (sprite.offset > 0 ? 1 : -1), spriteW)) {
-            speed = maxSpeed/5;
-            position = Util.increase(playerSegment.p1.world.z, -playerZ, trackLength); // stop in front of sprite (at front of segment)
-            break;
-          }
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
         }
-      }
-
-      for(n = 0 ; n < playerSegment.cars.length ; n++) {
-        car  = playerSegment.cars[n];
-        carW = car.sprite.w * SPRITES.SCALE;
-        if (speed > car.speed) {
-          if (Util.overlap(playerX, playerW, car.offset, carW, 0.8)) {
-            speed    = car.speed * (car.speed/speed);
-            position = Util.increase(car.z, -playerZ, trackLength);
-            break;
-          }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background: #fff;
         }
-      }
-
-      playerX = Util.limit(playerX, -3, 3);     // dont ever let it go too far out of bounds
-      speed   = Util.limit(speed, 0, maxSpeed); // or exceed maxSpeed
-
-      skyOffset  = Util.increase(skyOffset,  skySpeed  * playerSegment.curve * (position-startPosition)/segmentLength, 1);
-      hillOffset = Util.increase(hillOffset, hillSpeed * playerSegment.curve * (position-startPosition)/segmentLength, 1);
-      treeOffset = Util.increase(treeOffset, treeSpeed * playerSegment.curve * (position-startPosition)/segmentLength, 1);
-
-      if (position > playerZ) {
-        if (currentLapTime && (startPosition < playerZ)) {
-          lastLapTime    = currentLapTime;
-          currentLapTime = 0;
-          if (lastLapTime <= Util.toFloat(Dom.storage.fast_lap_time)) {
-            Dom.storage.fast_lap_time = lastLapTime;
-            updateHud('fast_lap_time', formatTime(lastLapTime));
-            Dom.addClassName('fast_lap_time', 'fastest');
-            Dom.addClassName('last_lap_time', 'fastest');
-          }
-          else {
-            Dom.removeClassName('fast_lap_time', 'fastest');
-            Dom.removeClassName('last_lap_time', 'fastest');
-          }
-          updateHud('last_lap_time', formatTime(lastLapTime));
-          Dom.show('last_lap_time');
+        audio {
+            display: none;
         }
-        else {
-          currentLapTime += dt;
-        }
-      }
+    </style>
 
-      updateHud('speed',            5 * Math.round(speed/500));
-      updateHud('current_lap_time', formatTime(currentLapTime));
-    }
+</head>
 
-    //-------------------------------------------------------------------------
+<body>
 
-    function updateCars(dt, playerSegment, playerW) {
-      var n, car, oldSegment, newSegment;
-      for(n = 0 ; n < cars.length ; n++) {
-        car         = cars[n];
-        oldSegment  = findSegment(car.z);
-        car.offset  = car.offset + updateCarOffset(car, oldSegment, playerSegment, playerW);
-        car.z       = Util.increase(car.z, dt * car.speed, trackLength);
-        car.percent = Util.percentRemaining(car.z, segmentLength); // useful for interpolation during rendering phase
-        newSegment  = findSegment(car.z);
-        if (oldSegment != newSegment) {
-          index = oldSegment.cars.indexOf(car);
-          oldSegment.cars.splice(index, 1);
-          newSegment.cars.push(car);
-        }
-      }
-    }
+    <canvas></canvas>
+    <script>
+		/*
+		   =================================================================
+			script: CrappyBird
+			author: Varun Pant  
+			date: April 6, 2014
+			site: http://www.varunpant.com			 	 
+		   =================================================================
+		*/
 
-    function updateCarOffset(car, carSegment, playerSegment, playerW) {
 
-      var i, j, dir, segment, otherCar, otherCarW, lookahead = 20, carW = car.sprite.w * SPRITES.SCALE;
+        // http://paulirish.com/2011/requestanimationframe-for-smart-animating
+         // shim layer with setTimeout fallback
+        window.requestAnimFrame = (function () {
+            return window.requestAnimationFrame ||
+                window.webkitRequestAnimationFrame ||
+                window.mozRequestAnimationFrame ||
+                window.oRequestAnimationFrame ||
+                window.msRequestAnimationFrame ||
+                function (callback) {
+                    window.setTimeout(callback, 1000 / 60);
+            };
+        })();
+         //sounds
 
-      // optimization, dont bother steering around other cars when 'out of sight' of the player
-      if ((carSegment.index - playerSegment.index) > drawDistance)
-        return 0;
-
-      for(i = 1 ; i < lookahead ; i++) {
-        segment = segments[(carSegment.index+i)%segments.length];
-
-        if ((segment === playerSegment) && (car.speed > speed) && (Util.overlap(playerX, playerW, car.offset, carW, 1.2))) {
-          if (playerX > 0.5)
-            dir = -1;
-          else if (playerX < -0.5)
-            dir = 1;
-          else
-            dir = (car.offset > playerX) ? 1 : -1;
-          return dir * 1/i * (car.speed-speed)/maxSpeed; // the closer the cars (smaller i) and the greated the speed ratio, the larger the offset
+        var soundJump = new Audio("wing.ogg");
+        var soundScore = new Audio("point.ogg");
+        var soundHit = new Audio("hit.ogg");
+        var soundDie = new Audio("die.ogg");
+        var soundSwoosh = new Audio("swooshing.ogg");
+         //http://www.storiesinflight.com/html5/audio.html
+        var channel_max = 10; // number of channels
+        audiochannels = new Array();
+        for (a = 0; a < channel_max; a++) { // prepare the channels
+            audiochannels[a] = new Array();
+            audiochannels[a]['channel'] = new Audio(); // create a new audio object
+            audiochannels[a]['finished'] = -1; // expected end time for this channel
         }
 
-        for(j = 0 ; j < segment.cars.length ; j++) {
-          otherCar  = segment.cars[j];
-          otherCarW = otherCar.sprite.w * SPRITES.SCALE;
-          if ((car.speed > otherCar.speed) && Util.overlap(car.offset, carW, otherCar.offset, otherCarW, 1.2)) {
-            if (otherCar.offset > 0.5)
-              dir = -1;
-            else if (otherCar.offset < -0.5)
-              dir = 1;
-            else
-              dir = (car.offset > otherCar.offset) ? 1 : -1;
-            return dir * 1/i * (car.speed-otherCar.speed)/maxSpeed;
-          }
+        function play_sound(s) {
+            for (a = 0; a < audiochannels.length; a++) {
+                thistime = new Date();
+                if (audiochannels[a]['finished'] < thistime.getTime()) { // is this channel finished?
+                    audiochannels[a]['finished'] = thistime.getTime() + s.duration * 1000;
+                    audiochannels[a]['channel'].src = s.src;
+                    audiochannels[a]['channel'].load();
+                    audiochannels[a]['channel'].play();
+                    break;
+                }
+            }
         }
-      }
+		
+		function getCookie(cname)
+		{
+		   var name = cname + "=";
+		   var ca = document.cookie.split(';');
+		   for(var i=0; i<ca.length; i++) 
+		   {
+			  var c = ca[i].trim();
+			  if (c.indexOf(name)==0) return c.substring(name.length,c.length);
+		   }
+		   return "";
+		}
 
-      // if no cars ahead, but I have somehow ended up off road, then steer back on
-      if (car.offset < -0.9)
-        return 0.1;
-      else if (car.offset > 0.9)
-        return -0.1;
-      else
-        return 0;
-    }
+		function setCookie(cname,cvalue,exdays)
+		{
+		   var d = new Date();
+		   d.setTime(d.getTime()+(exdays*24*60*60*1000));
+		   var expires = "expires="+d.toGMTString();
+		   document.cookie = cname + "=" + cvalue + "; " + expires;
+		}
 
-    //-------------------------------------------------------------------------
+         // namespace our game
+        var FB = {
+            // set up some inital values
+            WIDTH: 320,
+            HEIGHT: 480,
+            scale: 1,
+            // the position of the canvas
+            // in relation to the screen
+            offset: {
+                top: 0,
+                left: 0
+            },
+            // store all bird, touches, pipes etc
+            entities: [],
+            currentWidth: null,
+            currentHeight: null,
+            canvas: null,
+            ctx: null,
+            score: {
+                taps: 0,
+                coins: 0
+            },
+            distance: 0,
+			digits:[],
+			fonts:[],
+            // we'll set the rest of these
+            // in the init function
+            RATIO: null,
+            bg_grad: "day",
+			game:null,
+            currentWidth: null,
+            currentHeight: null,
+            canvas: null,
+            ctx: null,
+            ua: null,
+            android: null,
+            ios: null,
+            gradients: {},
+            init: function () {
+                var grad;
+                // the proportion of width to height
+                FB.RATIO = FB.WIDTH / FB.HEIGHT;
+                // these will change when the screen is resize
+                FB.currentWidth = FB.WIDTH;
+                FB.currentHeight = FB.HEIGHT;
+                // this is our canvas element
+                FB.canvas = document.getElementsByTagName('canvas')[0];
+                // it's important to set this
+                // otherwise the browser will
+                // default to 320x200
+                FB.canvas.width = FB.WIDTH;
+                FB.canvas.height = FB.HEIGHT;
+                // the canvas context allows us to 
+                // interact with the canvas api
+                FB.ctx = FB.canvas.getContext('2d');
+                // we need to sniff out android & ios
+                // so we can hide the address bar in
+                // our resize function
+                FB.ua = navigator.userAgent.toLowerCase();
+                FB.android = FB.ua.indexOf('android') > -1 ? true : false;
+                FB.ios = (FB.ua.indexOf('iphone') > -1 || FB.ua.indexOf('ipad') > -1) ? true : false;
 
-    function updateHud(key, value) { // accessing DOM can be slow, so only do it if value has changed
-      if (hud[key].value !== value) {
-        hud[key].value = value;
-        Dom.set(hud[key].dom, value);
-      }
-    }
+                // setup some gradients
+                grad = FB.ctx.createLinearGradient(0, 0, 0, FB.HEIGHT);
+                grad.addColorStop(0, '#036');
+                grad.addColorStop(0.5, '#69a');
+                grad.addColorStop(1, 'yellow');
+                FB.gradients.dawn = grad;
 
-    function formatTime(dt) {
-      var minutes = Math.floor(dt/60);
-      var seconds = Math.floor(dt - (minutes * 60));
-      var tenths  = Math.floor(10 * (dt - Math.floor(dt)));
-      if (minutes > 0)
-        return minutes + "." + (seconds < 10 ? "0" : "") + seconds + "." + tenths;
-      else
-        return seconds + "." + tenths;
-    }
+                grad = FB.ctx.createLinearGradient(0, 0, 0, FB.HEIGHT);
+                grad.addColorStop(0, '#69a');
+                grad.addColorStop(0.5, '#9cd');
+                grad.addColorStop(1, '#fff');
+                FB.gradients.day = grad;
 
-    //=========================================================================
-    // RENDER THE GAME WORLD
-    //=========================================================================
+                grad = FB.ctx.createLinearGradient(0, 0, 0, FB.HEIGHT);
+                grad.addColorStop(0, '#036');
+                grad.addColorStop(0.3, '#69a');
+                grad.addColorStop(1, 'pink');
+                FB.gradients.dusk = grad;
 
-    function render() {
+                grad = FB.ctx.createLinearGradient(0, 0, 0, FB.HEIGHT);
+                grad.addColorStop(0, '#036');
+                grad.addColorStop(1, 'black');
+                FB.gradients.night = grad;
 
-      var baseSegment   = findSegment(position);
-      var basePercent   = Util.percentRemaining(position, segmentLength);
-      var playerSegment = findSegment(position+playerZ);
-      var playerPercent = Util.percentRemaining(position+playerZ, segmentLength);
-      var playerY       = Util.interpolate(playerSegment.p1.world.y, playerSegment.p2.world.y, playerPercent);
-      var maxy          = height;
+                // listen for clicks
+                window.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    FB.Input.set(e);
+                }, false);
 
-      var x  = 0;
-      var dx = - (baseSegment.curve * basePercent);
+                // listen for touches
+                window.addEventListener('touchstart', function (e) {
+                    e.preventDefault();
+                    // the event object has an array
+                    // called touches, we just want
+                    // the first touch
+                    FB.Input.set(e.touches[0]);
+                }, false);
+                window.addEventListener('touchmove', function (e) {
+                    // we're not interested in this
+                    // but prevent default behaviour
+                    // so the screen doesn't scroll
+                    // or zoom
+                    e.preventDefault();
+                }, false);
+                window.addEventListener('touchend', function (e) {
+                    // as above
+                    e.preventDefault();
+                }, false);
 
-      ctx.clearRect(0, 0, width, height);
+                // we're ready to resize
+                FB.resize();
+				FB.changeState("Splash");
+                
+                FB.loop();
 
-      Render.background(ctx, background, width, height, BACKGROUND.SKY,   skyOffset,  resolution * skySpeed  * playerY);
-      Render.background(ctx, background, width, height, BACKGROUND.HILLS, hillOffset, resolution * hillSpeed * playerY);
-      Render.background(ctx, background, width, height, BACKGROUND.TREES, treeOffset, resolution * treeSpeed * playerY);
+            },
 
-      var n, i, segment, car, sprite, spriteScale, spriteX, spriteY;
+            resize: function () {
 
-      for(n = 0 ; n < drawDistance ; n++) {
+                FB.currentHeight = window.innerHeight;
+                // resize the width in proportion
+                // to the new height
+                FB.currentWidth = FB.currentHeight * FB.RATIO;
 
-        segment        = segments[(baseSegment.index + n) % segments.length];
-        segment.looped = segment.index < baseSegment.index;
-        segment.fog    = Util.exponentialFog(n/drawDistance, fogDensity);
-        segment.clip   = maxy;
+                // this will create some extra space on the
+                // page, allowing us to scroll pass
+                // the address bar, and thus hide it.
+                if (FB.android || FB.ios) {
+                    document.body.style.height = (window.innerHeight + 50) + 'px';
+                }
 
-        Util.project(segment.p1, (playerX * roadWidth) - x,      playerY + cameraHeight, position - (segment.looped ? trackLength : 0), cameraDepth, width, height, roadWidth);
-        Util.project(segment.p2, (playerX * roadWidth) - x - dx, playerY + cameraHeight, position - (segment.looped ? trackLength : 0), cameraDepth, width, height, roadWidth);
+                // set the new canvas style width & height
+                // note: our canvas is still 320x480 but
+                // we're essentially scaling it with CSS
+                FB.canvas.style.width = FB.currentWidth + 'px';
+                FB.canvas.style.height = FB.currentHeight + 'px';
 
-        x  = x + dx;
-        dx = dx + segment.curve;
+                // the amount by which the css resized canvas
+                // is different to the actual (480x320) size.
+                FB.scale = FB.currentWidth / FB.WIDTH;
+                // position of canvas in relation to
+                // the screen
+                FB.offset.top = FB.canvas.offsetTop;
+                FB.offset.left = FB.canvas.offsetLeft;
 
-        if ((segment.p1.camera.z <= cameraDepth)         || // behind us
-            (segment.p2.screen.y >= segment.p1.screen.y) || // back face cull
-            (segment.p2.screen.y >= maxy))                  // clip by (already rendered) hill
-          continue;
+                // we use a timeout here as some mobile
+                // browsers won't scroll if there is not
+                // a small delay
+                window.setTimeout(function () {
+                    window.scrollTo(0, 1);
+                }, 1);
+            },
+			            
+            // this is where all entities will be moved
+            // and checked for collisions etc
+            update: function () {
+                FB.game.update();
+                FB.Input.tapped = false;
+            },
 
-        Render.segment(ctx, width, lanes,
-                       segment.p1.screen.x,
-                       segment.p1.screen.y,
-                       segment.p1.screen.w,
-                       segment.p2.screen.x,
-                       segment.p2.screen.y,
-                       segment.p2.screen.w,
-                       segment.fog,
-                       segment.color);
+            // this is where we draw all the entities
+            render: function () {
 
-        maxy = segment.p1.screen.y;
-      }
+                FB.Draw.rect(0, 0, FB.WIDTH, FB.HEIGHT, FB.gradients[FB.bg_grad]);
+				 
+                // cycle through all entities and render to canvas
+                for (i = 0; i < FB.entities.length; i += 1) {
+                    FB.entities[i].render();
+                }
+					
+				FB.game.render();
+				
+            },
 
-      for(n = (drawDistance-1) ; n > 0 ; n--) {
-        segment = segments[(baseSegment.index + n) % segments.length];
+            // the actual loop
+            // requests animation frame
+            // then proceeds to update
+            // and render
+            loop: function () {
 
-        for(i = 0 ; i < segment.cars.length ; i++) {
-          car         = segment.cars[i];
-          sprite      = car.sprite;
-          spriteScale = Util.interpolate(segment.p1.screen.scale, segment.p2.screen.scale, car.percent);
-          spriteX     = Util.interpolate(segment.p1.screen.x,     segment.p2.screen.x,     car.percent) + (spriteScale * car.offset * roadWidth * width/2);
-          spriteY     = Util.interpolate(segment.p1.screen.y,     segment.p2.screen.y,     car.percent);
-          Render.sprite(ctx, width, height, resolution, roadWidth, sprites, car.sprite, spriteScale, spriteX, spriteY, -0.5, -1, segment.clip);
+                requestAnimFrame(FB.loop);
+
+                FB.update();
+                FB.render();
+            },
+			changeState: function(state) {    				 
+				FB.game = new window[state]();
+				FB.game.init();
+			}
+        };
+
+         // abstracts various canvas operations into
+         // standalone functions
+        FB.Draw = {
+
+            clear: function () {
+                FB.ctx.clearRect(0, 0, FB.WIDTH, FB.HEIGHT);
+            },
+
+            rect: function (x, y, w, h, col) {
+                FB.ctx.fillStyle = col;
+                FB.ctx.fillRect(x, y, w, h);
+            },
+            circle: function (x, y, r, col) {
+                FB.ctx.fillStyle = col;
+                FB.ctx.beginPath();
+                FB.ctx.arc(x + 5, y + 5, r, 0, Math.PI * 2, true);
+                FB.ctx.closePath();
+                FB.ctx.fill();
+            },
+			Image:function(img,x,y){				
+				FB.ctx.drawImage(img,x,y);
+			},
+            Sprite: function (img, srcX, srcY, srcW, srcH, destX, destY, destW, destH, r) {
+                FB.ctx.save();
+                FB.ctx.translate(destX, destY);
+                FB.ctx.rotate(r * (Math.PI / 180));
+                FB.ctx.translate(-(destX + destW / 2), -(destY + destH / 2));
+                FB.ctx.drawImage(img, srcX, srcY, srcW, srcH, destX, destY, destW, destH);
+                FB.ctx.restore();
+            },
+            semiCircle: function (x, y, r, col) {
+                FB.ctx.fillStyle = col;
+                FB.ctx.beginPath();
+                FB.ctx.arc(x, y, r, 0, Math.PI, false);
+                FB.ctx.closePath();
+                FB.ctx.fill();
+            },
+
+            text: function (string, x, y, size, col) {
+                FB.ctx.font = 'bold ' + size + 'px Monospace';
+                FB.ctx.fillStyle = col;
+                FB.ctx.fillText(string, x, y);
+            }
+
+        };
+
+        FB.Input = {
+
+            x: 0,
+            y: 0,
+            tapped: false,
+
+            set: function (data) {
+                this.x = (data.pageX - FB.offset.left) / FB.scale;
+                this.y = (data.pageY - FB.offset.top) / FB.scale;
+                this.tapped = true;
+
+            }
+
+        };
+
+        FB.Cloud = function (x, y) {
+
+            this.x = x;
+            this.y = y;
+            this.r = 30;
+            this.col = 'rgba(255,255,255,1)';
+            this.type = 'cloud';
+            // random values so particles do no
+            // travel at the same speeds
+            this.vx = -0.10;
+
+            this.remove = false;
+
+            this.update = function () {
+
+                // update coordinates
+                this.x += this.vx;
+                if (this.x < (0 - 115)) {
+                    this.respawn();
+                }
+
+            };
+
+
+            this.render = function () {
+
+                FB.Draw.circle(this.x + this.r, (this.y + this.r), this.r, this.col);
+                FB.Draw.circle(this.x + 55, (this.y + this.r / 2), this.r / 0.88, this.col);
+                FB.Draw.circle(this.x + 55, (this.y + this.r + 15), this.r, this.col);
+                FB.Draw.circle(this.x + 85, (this.y + this.r), this.r, this.col);
+
+
+            };
+
+            this.respawn = function () {
+
+                this.x = ~~ (Math.random() * this.r * 2) + FB.WIDTH;
+                this.y = ~~ (Math.random() * FB.HEIGHT / 2)
+
+
+            };
+
+        };
+
+        FB.BottomBar = function (x, y, r) {
+
+            this.x = x;
+            this.y = y
+            this.r = r;
+            this.vx = -1;
+            this.name = 'BottomBar';
+
+            this.update = function () {
+                // update coordinates
+                this.x += this.vx;
+                if (this.x < (0 - this.r)) {
+                    this.respawn();
+                }
+            };
+
+            this.render = function () {
+                FB.Draw.rect(this.x, this.y, this.r, 100, '#D2691E');
+                for (var i = 0; i < 10; i++) {
+                    FB.Draw.semiCircle(this.x + i * (this.r / 9), this.y, 20, '#050');
+                }
+            }
+
+            this.respawn = function () {
+                this.x = FB.WIDTH - 1;
+            }
+
         }
 
-        for(i = 0 ; i < segment.sprites.length ; i++) {
-          sprite      = segment.sprites[i];
-          spriteScale = segment.p1.screen.scale;
-          spriteX     = segment.p1.screen.x + (spriteScale * sprite.offset * roadWidth * width/2);
-          spriteY     = segment.p1.screen.y;
-          Render.sprite(ctx, width, height, resolution, roadWidth, sprites, sprite.source, spriteScale, spriteX, spriteY, (sprite.offset < 0 ? -1 : 0), -1, segment.clip);
+        FB.Tree = function (x, y) {
+
+            this.x = x;
+            this.y = y
+            this.r = 30;
+            this.h = 50;
+            this.w = this.r * 2;
+            this.vx = -1;
+            this.type = 'Tree';
+
+            this.update = function () {
+                // update coordinates
+                this.x += this.vx;
+                if (this.x < (0 - this.r * 2)) {
+                    this.respawn();
+                }
+            };
+
+            this.render = function () {
+
+                //FB.Draw.rect(this.x, this.y, this.w, this.h, '#c20');
+                FB.Draw.circle(this.x + this.r, (this.y + this.r) - 10, this.r, 'green', '#050');
+                FB.Draw.circle(this.x + (this.r / 2), (this.y + this.r) - 10, this.r / 3, 'rgba(0,0,0,0.08)');
+                FB.Draw.rect(this.x + this.r, this.y + this.r, 10, this.r, 'brown', '#d20');
+            }
+
+            this.respawn = function () {
+                this.x = FB.WIDTH + this.r;
+            }
+
+
         }
 
-        if (segment == playerSegment) {
-          Render.player(ctx, width, height, resolution, roadWidth, sprites, speed/maxSpeed,
-                        cameraDepth/playerZ,
-                        width/2,
-                        (height/2) - (cameraDepth/playerZ * Util.interpolate(playerSegment.p1.camera.y, playerSegment.p2.camera.y, playerPercent) * height/2),
-                        speed * (keyLeft ? -1 : keyRight ? 1 : 0),
-                        playerSegment.p2.world.y - playerSegment.p1.world.y);
+        FB.Pipe = function (x, w) {
+
+            this.centerX = x;
+            this.coin = true
+            this.w = w;
+            this.h = FB.HEIGHT - 150;
+            this.vx = -1;
+            this.type = 'pipe';
+
+
+            this.update = function () {
+                // update coordinates
+                this.centerX += this.vx;
+                if (this.centerX == (0 - this.w)) {
+                    this.respawn();
+                }
+            };
+
+            this.render = function () {
+
+                if (this.coin) {
+                    FB.Draw.circle(this.centerX + this.w / 2 - 5, this.centerY - 5, 5, "Gold")
+                }
+                FB.Draw.rect(this.centerX, 0, this.w, this.centerY - 50, '#8ED6FF');
+                FB.Draw.rect(this.centerX, this.centerY + 50, this.w, this.h - this.centerY, '#8ED6FF');
+            }
+
+            this.respawn = function () {
+                this.centerY = this.randomIntFromInterval(70, 220);
+                this.centerX = 320 - this.w + 160;
+                this.coin = true;
+            }
+
+            this.randomIntFromInterval = function (min, max) {
+                return Math.floor(Math.random() * (max - min + 1) + min);
+            }
+
+            this.centerY = this.randomIntFromInterval(70, 220);
         }
-      }
-    }
 
-    function findSegment(z) {
-      return segments[Math.floor(z/segmentLength) % segments.length]; 
-    }
+        FB.Bird = function () {
 
-    //=========================================================================
-    // BUILD ROAD GEOMETRY
-    //=========================================================================
+            this.img = new Image();
+            this.img.src = 'bird.png';
+            this.gravity = 0.25;
+            this.width = 34;
+            this.height = 24;
+            this.ix = 0;
+            this.iy = 0;
+            this.fr = 0;
+            this.vy = 180;
+            this.vx = 70;
+            this.velocity = 0;
+            this.play = false;
+            this.jump = -4.6;
+            this.rotation = 0;
+            this.type = 'bird';
+            this.update = function () {
+                if (this.fr++ > 5) {
+                    this.fr = 0;
+                    if (this.iy == this.height * 3) {
+                        this.iy = 0
+                    }
+                    this.iy += this.height;
+                }
+                if (this.play) {
+                    this.velocity += this.gravity;
+                    this.vy += this.velocity;
+                    if (this.vy <= 0) {
+                        this.vy = 0;
+                    }
+                    if (this.vy >= 370) {
+                        this.vy = 370;
+                    }
+                    this.rotation = Math.min((this.velocity / 10) * 90, 90);
+                }
+                if (FB.Input.tapped) {
+                    this.play = true;
+                    play_sound(soundJump);
+                    this.velocity = this.jump;
+                }
+            };
 
-    function lastY() { return (segments.length == 0) ? 0 : segments[segments.length-1].p2.world.y; }
+            this.render = function () {
 
-    function addSegment(curve, y) {
-      var n = segments.length;
-      segments.push({
-          index: n,
-             p1: { world: { y: lastY(), z:  n   *segmentLength }, camera: {}, screen: {} },
-             p2: { world: { y: y,       z: (n+1)*segmentLength }, camera: {}, screen: {} },
-          curve: curve,
-        sprites: [],
-           cars: [],
-          color: Math.floor(n/rumbleLength)%2 ? COLORS.DARK : COLORS.LIGHT
-      });
-    }
+                FB.Draw.Sprite(this.img, this.ix, this.iy, this.width, this.height, this.vx, this.vy, this.width, this.height, this.rotation);
+            }
 
-    function addSprite(n, sprite, offset) {
-      segments[n].sprites.push({ source: sprite, offset: offset });
-    }
-
-    function addRoad(enter, hold, leave, curve, y) {
-      var startY   = lastY();
-      var endY     = startY + (Util.toInt(y, 0) * segmentLength);
-      var n, total = enter + hold + leave;
-      for(n = 0 ; n < enter ; n++)
-        addSegment(Util.easeIn(0, curve, n/enter), Util.easeInOut(startY, endY, n/total));
-      for(n = 0 ; n < hold  ; n++)
-        addSegment(curve, Util.easeInOut(startY, endY, (enter+n)/total));
-      for(n = 0 ; n < leave ; n++)
-        addSegment(Util.easeInOut(curve, 0, n/leave), Util.easeInOut(startY, endY, (enter+hold+n)/total));
-    }
-
-    var ROAD = {
-      LENGTH: { NONE: 0, SHORT:  25, MEDIUM:   50, LONG:  100 },
-      HILL:   { NONE: 0, LOW:    20, MEDIUM:   40, HIGH:   60 },
-      CURVE:  { NONE: 0, EASY:    2, MEDIUM:    4, HARD:    6 }
-    };
-
-    function addStraight(num) {
-      num = num || ROAD.LENGTH.MEDIUM;
-      addRoad(num, num, num, 0, 0);
-    }
-
-    function addHill(num, height) {
-      num    = num    || ROAD.LENGTH.MEDIUM;
-      height = height || ROAD.HILL.MEDIUM;
-      addRoad(num, num, num, 0, height);
-    }
-
-    function addCurve(num, curve, height) {
-      num    = num    || ROAD.LENGTH.MEDIUM;
-      curve  = curve  || ROAD.CURVE.MEDIUM;
-      height = height || ROAD.HILL.NONE;
-      addRoad(num, num, num, curve, height);
-    }
-        
-    function addLowRollingHills(num, height) {
-      num    = num    || ROAD.LENGTH.SHORT;
-      height = height || ROAD.HILL.LOW;
-      addRoad(num, num, num,  0,                height/2);
-      addRoad(num, num, num,  0,               -height);
-      addRoad(num, num, num,  ROAD.CURVE.EASY,  height);
-      addRoad(num, num, num,  0,                0);
-      addRoad(num, num, num, -ROAD.CURVE.EASY,  height/2);
-      addRoad(num, num, num,  0,                0);
-    }
-
-    function addSCurves() {
-      addRoad(ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM,  -ROAD.CURVE.EASY,    ROAD.HILL.NONE);
-      addRoad(ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM,   ROAD.CURVE.MEDIUM,  ROAD.HILL.MEDIUM);
-      addRoad(ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM,   ROAD.CURVE.EASY,   -ROAD.HILL.LOW);
-      addRoad(ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM,  -ROAD.CURVE.EASY,    ROAD.HILL.MEDIUM);
-      addRoad(ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM, ROAD.LENGTH.MEDIUM,  -ROAD.CURVE.MEDIUM, -ROAD.HILL.MEDIUM);
-    }
-
-    function addBumps() {
-      addRoad(10, 10, 10, 0,  5);
-      addRoad(10, 10, 10, 0, -2);
-      addRoad(10, 10, 10, 0, -5);
-      addRoad(10, 10, 10, 0,  8);
-      addRoad(10, 10, 10, 0,  5);
-      addRoad(10, 10, 10, 0, -7);
-      addRoad(10, 10, 10, 0,  5);
-      addRoad(10, 10, 10, 0, -2);
-    }
-
-    function addDownhillToEnd(num) {
-      num = num || 200;
-      addRoad(num, num, num, -ROAD.CURVE.EASY, -lastY()/segmentLength);
-    }
-
-    function resetRoad() {
-      segments = [];
-
-      addStraight(ROAD.LENGTH.SHORT);
-      addLowRollingHills();
-      addSCurves();
-      addCurve(ROAD.LENGTH.MEDIUM, ROAD.CURVE.MEDIUM, ROAD.HILL.LOW);
-      addBumps();
-      addLowRollingHills();
-      addCurve(ROAD.LENGTH.LONG*2, ROAD.CURVE.MEDIUM, ROAD.HILL.MEDIUM);
-      addStraight();
-      addHill(ROAD.LENGTH.MEDIUM, ROAD.HILL.HIGH);
-      addSCurves();
-      addCurve(ROAD.LENGTH.LONG, -ROAD.CURVE.MEDIUM, ROAD.HILL.NONE);
-      addHill(ROAD.LENGTH.LONG, ROAD.HILL.HIGH);
-      addCurve(ROAD.LENGTH.LONG, ROAD.CURVE.MEDIUM, -ROAD.HILL.LOW);
-      addBumps();
-      addHill(ROAD.LENGTH.LONG, -ROAD.HILL.MEDIUM);
-      addStraight();
-      addSCurves();
-      addDownhillToEnd();
-
-      resetSprites();
-      resetCars();
-
-      segments[findSegment(playerZ).index + 2].color = COLORS.START;
-      segments[findSegment(playerZ).index + 3].color = COLORS.START;
-      for(var n = 0 ; n < rumbleLength ; n++)
-        segments[segments.length-1-n].color = COLORS.FINISH;
-
-      trackLength = segments.length * segmentLength;
-    }
-
-    function resetSprites() {
-      var n, i;
-
-      addSprite(20,  SPRITES.BILLBOARD07, -1);
-      addSprite(40,  SPRITES.BILLBOARD06, -1);
-      addSprite(60,  SPRITES.BILLBOARD08, -1);
-      addSprite(80,  SPRITES.BILLBOARD09, -1);
-      addSprite(100, SPRITES.BILLBOARD01, -1);
-      addSprite(120, SPRITES.BILLBOARD02, -1);
-      addSprite(140, SPRITES.BILLBOARD03, -1);
-      addSprite(160, SPRITES.BILLBOARD04, -1);
-      addSprite(180, SPRITES.BILLBOARD05, -1);
-
-      addSprite(240,                  SPRITES.BILLBOARD07, -1.2);
-      addSprite(240,                  SPRITES.BILLBOARD06,  1.2);
-      addSprite(segments.length - 25, SPRITES.BILLBOARD07, -1.2);
-      addSprite(segments.length - 25, SPRITES.BILLBOARD06,  1.2);
-
-      for(n = 10 ; n < 200 ; n += 4 + Math.floor(n/100)) {
-        addSprite(n, SPRITES.PALM_TREE, 0.5 + Math.random()*0.5);
-        addSprite(n, SPRITES.PALM_TREE,   1 + Math.random()*2);
-      }
-
-      for(n = 250 ; n < 1000 ; n += 5) {
-        addSprite(n,     SPRITES.COLUMN, 1.1);
-        addSprite(n + Util.randomInt(0,5), SPRITES.TREE1, -1 - (Math.random() * 2));
-        addSprite(n + Util.randomInt(0,5), SPRITES.TREE2, -1 - (Math.random() * 2));
-      }
-
-      for(n = 200 ; n < segments.length ; n += 3) {
-        addSprite(n, Util.randomChoice(SPRITES.PLANTS), Util.randomChoice([1,-1]) * (2 + Math.random() * 5));
-      }
-
-      var side, sprite, offset;
-      for(n = 1000 ; n < (segments.length-50) ; n += 100) {
-        side      = Util.randomChoice([1, -1]);
-        addSprite(n + Util.randomInt(0, 50), Util.randomChoice(SPRITES.BILLBOARDS), -side);
-        for(i = 0 ; i < 20 ; i++) {
-          sprite = Util.randomChoice(SPRITES.PLANTS);
-          offset = side * (1.5 + Math.random());
-          addSprite(n + Util.randomInt(0, 50), sprite, offset);
         }
-          
-      }
 
-    }
+        FB.Particle = function (x, y, r, col, type) {
 
-    function resetCars() {
-      cars = [];
-      var n, car, segment, offset, z, sprite, speed;
-      for (var n = 0 ; n < totalCars ; n++) {
-        offset = Math.random() * Util.randomChoice([-0.8, 0.8]);
-        z      = Math.floor(Math.random() * segments.length) * segmentLength;
-        sprite = Util.randomChoice(SPRITES.CARS);
-        speed  = maxSpeed/4 + Math.random() * maxSpeed/(sprite == SPRITES.SEMI ? 4 : 2);
-        car = { offset: offset, z: z, sprite: sprite, speed: speed };
-        segment = findSegment(car.z);
-        segment.cars.push(car);
-        cars.push(car);
-      }
-    }
+            this.x = x;
+            this.y = y;
+            this.r = r;
+            this.col = col;
+            this.type = type || 'circle';
+            this.name = 'particle';
 
-    //=========================================================================
-    // THE GAME LOOP
-    //=========================================================================
+            // determines whether particle will
+            // travel to the right of left
+            // 50% chance of either happening
+            this.dir = (Math.random() * 2 > 1) ? 1 : -1;
 
-    Game.run({
-      canvas: canvas, render: render, update: update, stats: stats, step: step,
-      images: ["background", "sprites"],
-      keys: [
-        { keys: [KEY.LEFT,  KEY.A], mode: 'down', action: function() { keyLeft   = true;  } },
-        { keys: [KEY.RIGHT, KEY.D], mode: 'down', action: function() { keyRight  = true;  } },
-        { keys: [KEY.UP,    KEY.W], mode: 'down', action: function() { keyFaster = true;  } },
-        { keys: [KEY.DOWN,  KEY.S], mode: 'down', action: function() { keySlower = true;  } },
-        { keys: [KEY.LEFT,  KEY.A], mode: 'up',   action: function() { keyLeft   = false; } },
-        { keys: [KEY.RIGHT, KEY.D], mode: 'up',   action: function() { keyRight  = false; } },
-        { keys: [KEY.UP,    KEY.W], mode: 'up',   action: function() { keyFaster = false; } },
-        { keys: [KEY.DOWN,  KEY.S], mode: 'up',   action: function() { keySlower = false; } }
-      ],
-      ready: function(images) {
-        background = images[0];
-        sprites    = images[1];
-        reset();
-        Dom.storage.fast_lap_time = Dom.storage.fast_lap_time || 180;
-        updateHud('fast_lap_time', formatTime(Util.toFloat(Dom.storage.fast_lap_time)));
-      }
-    });
+            // random values so particles do no
+            // travel at the same speeds
+            this.vx = ~~ (Math.random() * 4) * this.dir;
+            this.vy = ~~ (Math.random() * 7);
 
-    function reset(options) {
-      options       = options || {};
-      canvas.width  = width  = Util.toInt(options.width,          width);
-      canvas.height = height = Util.toInt(options.height,         height);
-      lanes                  = Util.toInt(options.lanes,          lanes);
-      roadWidth              = Util.toInt(options.roadWidth,      roadWidth);
-      cameraHeight           = Util.toInt(options.cameraHeight,   cameraHeight);
-      drawDistance           = Util.toInt(options.drawDistance,   drawDistance);
-      fogDensity             = Util.toInt(options.fogDensity,     fogDensity);
-      fieldOfView            = Util.toInt(options.fieldOfView,    fieldOfView);
-      segmentLength          = Util.toInt(options.segmentLength,  segmentLength);
-      rumbleLength           = Util.toInt(options.rumbleLength,   rumbleLength);
-      cameraDepth            = 1 / Math.tan((fieldOfView/2) * Math.PI/180);
-      playerZ                = (cameraHeight * cameraDepth);
-      resolution             = height/480;
-      refreshTweakUI();
+            this.remove = false;
 
-      if ((segments.length==0) || (options.segmentLength) || (options.rumbleLength))
-        resetRoad(); // only rebuild road when necessary
-    }
+            this.update = function () {
 
-    //=========================================================================
-    // TWEAK UI HANDLERS
-    //=========================================================================
+                // update coordinates
+                this.x += this.vx;
+                this.y -= this.vy;
 
-    Dom.on('resolution', 'change', function(ev) {
-      var w, h, ratio;
-      switch(ev.target.options[ev.target.selectedIndex].value) {
-        case 'fine':   w = 1280; h = 960;  ratio=w/width; break;
-        case 'high':   w = 1024; h = 768;  ratio=w/width; break;
-        case 'medium': w = 640;  h = 480;  ratio=w/width; break;
-        case 'low':    w = 480;  h = 360;  ratio=w/width; break;
-      }
-      reset({ width: w, height: h })
-      Dom.blur(ev);
-    });
+                // increase velocity so particle
+                // accelerates off screen
+                this.vx *= 0.99;
+                this.vy *= 0.99;
 
-    Dom.on('lanes',          'change', function(ev) { Dom.blur(ev); reset({ lanes:         ev.target.options[ev.target.selectedIndex].value }); });
-    Dom.on('roadWidth',      'change', function(ev) { Dom.blur(ev); reset({ roadWidth:     Util.limit(Util.toInt(ev.target.value), Util.toInt(ev.target.getAttribute('min')), Util.toInt(ev.target.getAttribute('max'))) }); });
-    Dom.on('cameraHeight',   'change', function(ev) { Dom.blur(ev); reset({ cameraHeight:  Util.limit(Util.toInt(ev.target.value), Util.toInt(ev.target.getAttribute('min')), Util.toInt(ev.target.getAttribute('max'))) }); });
-    Dom.on('drawDistance',   'change', function(ev) { Dom.blur(ev); reset({ drawDistance:  Util.limit(Util.toInt(ev.target.value), Util.toInt(ev.target.getAttribute('min')), Util.toInt(ev.target.getAttribute('max'))) }); });
-    Dom.on('fieldOfView',    'change', function(ev) { Dom.blur(ev); reset({ fieldOfView:   Util.limit(Util.toInt(ev.target.value), Util.toInt(ev.target.getAttribute('min')), Util.toInt(ev.target.getAttribute('max'))) }); });
-    Dom.on('fogDensity',     'change', function(ev) { Dom.blur(ev); reset({ fogDensity:    Util.limit(Util.toInt(ev.target.value), Util.toInt(ev.target.getAttribute('min')), Util.toInt(ev.target.getAttribute('max'))) }); });
+                // adding this negative amount to the
+                // y velocity exerts an upward pull on
+                // the particle, as if drawn to the
+                // surface
+                this.vy -= 0.35;
 
-    function refreshTweakUI() {
-      Dom.get('lanes').selectedIndex = lanes-1;
-      Dom.get('currentRoadWidth').innerHTML      = Dom.get('roadWidth').value      = roadWidth;
-      Dom.get('currentCameraHeight').innerHTML   = Dom.get('cameraHeight').value   = cameraHeight;
-      Dom.get('currentDrawDistance').innerHTML   = Dom.get('drawDistance').value   = drawDistance;
-      Dom.get('currentFieldOfView').innerHTML    = Dom.get('fieldOfView').value    = fieldOfView;
-      Dom.get('currentFogDensity').innerHTML     = Dom.get('fogDensity').value     = fogDensity;
-    }
+                // offscreen
+                if (this.y > FB.HEIGHT) {
+                    this.remove = true;
+                }
 
-    //=========================================================================
+            };
 
-  </script>
 
-</body> 
+            this.render = function () {
+                if (this.type === 'star') {
+                    FB.Draw.star(this.x, this.y, this.col);
+                } else {
+                    FB.Draw.circle(this.x, this.y, this.r, this.col);
+                }
+            };
+
+        };
+
+         // checks if two entities are touching
+        FB.Collides = function (bird, pipe) {
+		
+			if(bird.vy >=370){				  
+				 
+				 return true;
+			}
+            if (pipe.coin && bird.vx > pipe.centerX + pipe.w / 2 - 5) {
+                pipe.coin = false;
+                FB.score.coins += 1;
+				FB.digits = FB.score.coins.toString().split('');
+                play_sound(soundScore);
+            }
+
+            var bx1 = bird.vx - bird.width / 2;
+            var by1 = bird.vy - bird.height / 2;
+            var bx2 = bird.vx + bird.width / 2;
+            var by2 = bird.vy + bird.height / 2;
+
+            var upx1 = pipe.centerX;
+            var upy1 = 0;
+            var upx2 = pipe.centerX + pipe.w;
+            var upy2 = pipe.centerY - 50;
+
+
+            var lpx1 = pipe.centerX;
+            var lpy1 = pipe.centerY + 50;
+            var lpx2 = upx2;
+            var lpy2 = pipe.h;
+
+            var c1 = !(bx1 > upx2 ||
+                bx2 < upx1 ||
+                by1 > upy2 ||
+                by2 < upy1)
+            var c2 = !(bx1 > lpx2 ||
+                bx2 < lpx1 ||
+                by1 > lpy2 ||
+                by2 < lpy1)
+
+            return (c1 || c2)
+
+        };
+		
+		window.Splash = function(){
+			
+			this.banner = new Image();
+			this.banner.src = "splash.png";
+			
+			this.init = function(){
+				play_sound(soundSwoosh);
+				FB.distance = 0;
+                FB.bg_grad = "day";
+                FB.entities = [];
+				FB.score.taps = FB.score.coins = 0;
+                //Add entities
+                FB.entities.push(new FB.Cloud(30, ~~ (Math.random() * FB.HEIGHT / 2)));
+                FB.entities.push(new FB.Cloud(130, ~~ (Math.random() * FB.HEIGHT / 2)));
+                FB.entities.push(new FB.Cloud(230, ~~ (Math.random() * FB.HEIGHT / 2)));
+                for (i = 0; i < 2; i += 1) {
+                    FB.entities.push(new FB.BottomBar(FB.WIDTH * i, FB.HEIGHT - 100, FB.WIDTH));
+                }
+                FB.entities.push(new FB.Tree(~~(Math.random() * FB.WIDTH), FB.HEIGHT - 160));
+                FB.entities.push(new FB.Tree(~~(Math.random() * FB.WIDTH + 50), FB.HEIGHT - 160));
+                FB.entities.push(new FB.Tree(~~(Math.random() * FB.WIDTH + 100), FB.HEIGHT - 160));
+			}
+			
+			this.update = function(){
+				for (i = 0; i < FB.entities.length; i += 1) {
+                    FB.entities[i].update();                    
+                }
+				if (FB.Input.tapped) {
+					FB.changeState('Play');
+					FB.Input.tapped = false;
+				}
+			}
+			
+			this.render = function(){
+				FB.Draw.Image(this.banner,66,100);
+			}
+		
+		}
+		
+		window.Play = function(){
+			
+			this.init = function(){			
+				 
+                
+                FB.entities.push(new FB.Pipe(FB.WIDTH * 2, 50));
+                FB.entities.push(new FB.Pipe(FB.WIDTH * 2 + FB.WIDTH / 2, 50));
+                FB.entities.push(new FB.Pipe(FB.WIDTH * 3, 50));
+
+                FB.bird = new FB.Bird();
+                FB.entities.push(FB.bird);
+				for(var n=0;n<10;n++){
+					var img = new Image();
+					img.src = "font_small_" + n +'.png';
+					FB.fonts.push(img);
+				}
+				FB.digits = ["0"];
+			}
+			
+			this.update = function() { 
+				
+				FB.distance += 1;
+                var levelUp = ((FB.distance % 2048) === 0) ? true : false;
+                if (levelUp) {
+                    var bg = "day";
+                    var gradients = ["day", "dusk", "night", "dawn"];
+                    for (var i = 0; i < gradients.length; i++) {
+                        if (FB.bg_grad === gradients[i]) {
+                            if (i == gradients.length - 1) {
+                                bg = "day";
+                            } else {
+                                bg = gradients[i + 1];
+                            }
+                        }
+                    }
+                    FB.bg_grad = bg;
+                }
+
+
+                var checkCollision = false; // we only need to check for a collision
+                // if the user tapped on this game tick
+
+
+
+
+                // if the user has tapped the screen
+                if (FB.Input.tapped) {
+                    // keep track of taps; needed to 
+                    // calculate accuracy
+                    FB.score.taps += 1;
+
+                    // set tapped back to false           
+                    // in the next cycle
+
+                    checkCollision = true;
+                }
+
+                // cycle through all entities and update as necessary
+                for (i = 0; i < FB.entities.length; i += 1) {
+                    FB.entities[i].update();
+                    if (FB.entities[i].type === 'pipe') {
+                        var hit = FB.Collides(FB.bird, FB.entities[i]);
+                        if (hit) {
+                            play_sound(soundHit);
+							FB.changeState('GameOver');
+							 break;
+                        }
+                    }
+                }
+			}
+			
+			this.render = function() { 
+				//score				
+				var X = (FB.WIDTH/2-(FB.digits.length*14)/2);				
+				for(var i = 0; i < FB.digits.length; i++)
+				{
+				  FB.Draw.Image(FB.fonts[Number(FB.digits[i])],X+(i*14),10);
+				}
+			}
+		
+		}
+		
+		window.GameOver = function(){
+			
+			this.getMedal = function()
+			{
+			   var score = FB.score.coins;
+			   console.log(score)
+			   if(score <= 10)
+				  medal = "bronze";
+			   if(score >= 20)
+				  medal = "silver";
+			   if(score >= 30)
+				  medal = "gold";
+			   if(score >= 40)
+				  medal = "platinum";
+			
+				return medal;
+			}
+			this.getHighScore = function(){
+				var savedscore = getCookie("highscore");
+			    if(savedscore != ""){
+					var hs = parseInt(savedscore) || 0;
+					if(hs < FB.score.coins)
+					{
+					 hs = FB.score.coins
+					 setCookie("highscore", hs, 999);
+					}
+					return hs;
+				  }
+				  else
+				  {					 
+					setCookie("highscore", FB.score.coins, 999);
+					return  FB.score.coins;
+				  }
+			}
+			this.init = function(){
+						
+			    var that = this;
+				setTimeout(function() {
+					play_sound(soundDie);
+					that.banner = new Image();
+					that.banner.src = "scoreboard.png";
+					var m = that.getMedal();
+					that.medal =  new Image();
+					that.medal.src = 'medal_' + m +'.png';
+					that.replay = new Image();
+					that.replay.src = "replay.png";
+					that.highscore = that.getHighScore() ;
+				}, 500);
+				
+			}
+			
+			this.update = function(){				
+				if (FB.Input.tapped) {
+					var x = FB.Input.x;
+					var y = FB.Input.y;
+					
+					 if((x >= 102.5 && x <= 102.5+115) && (y >= 260 && y <= 260+70)){       
+						FB.changeState('Splash');
+					}
+					FB.Input.tapped = false;
+				}
+				FB.bird.update();
+			}
+			
+			this.render = function(){
+				if(this.banner){
+					FB.Draw.Image(this.banner,42,70);
+					FB.Draw.Image(this.medal,75,183);
+					FB.Draw.Image(this.replay,102.5,260);
+					FB.Draw.text(FB.score.coins, 220, 185, 15, 'black');
+					FB.Draw.text(this.highscore, 220, 225, 15, 'black');
+				}
+			}
+		
+		}
+
+        window.addEventListener('load', FB.init, false);
+        window.addEventListener('resize', FB.resize, false);
+    </script>
+
+</body>
+
 </html>
